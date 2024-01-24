@@ -47,3 +47,5 @@ CloudFormation 예제 템플릿
 ## Warning ⚠️
 
 Lambda 및 ecs 혹은 실행중인 어플리케이션의 세부 구현은 사용방법에 따라 변경해야 함
+
+CodePipeline 을 사용하면, 위 리소스들을 nested stack 으로 하여 자동화 된 배포가 가능함. - [Link](https://www.youtube.com/watch?v=LHz04uN-wI0)
