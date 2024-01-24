@@ -1,0 +1,18 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: ECS related resources template
+
+Parameters:
+  SnsPlatformApplicationArn:
+    Type: String
+    Description: Arn of sns platform application
+
+Resources:
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      ContainerDefinitions:
+        ...
+          Environment:
+            - Name: SNS_PLATFORM_APPLICATION_ARN
+              Value: !Ref SnsPlatformApplicationArn
+        ...
