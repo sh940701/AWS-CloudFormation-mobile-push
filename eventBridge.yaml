@@ -1,0 +1,126 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+
+  FindNotificationUsersLambdaArn:
+    Type: String
+
+
+  LambdaStack:
+    Type: String
+
+  ProjectName:
+    Type: String
+
+Resources:
+  ScheduledRule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name:
+        Fn::Join:
+          - '-'
+          - - !Ref ProjectName
+            - AlarmScheduler
+      Description: 10분마다 반복되는 alarm schedule
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      ScheduleExpression: rate(10 minutes)
+      ScheduleExpressionTimezone: Asia/Seoul
+      StartDate: !GetAtt GetCurrentTimeLambdaExecution.Time
+      State: ENABLED
+      Target:
+        Arn:
+          Fn::ImportValue:
+            Fn::Join:
+              - '-'
+              - - !Ref LambdaStack
+                - FindNotificationUsersLambdaArn
+        RoleArn: !GetAtt [ SchedulerTargetRole, Arn ]
+
+  SchedulerTargetRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "scheduler.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: "LambdaInvokePolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: "lambda:InvokeFunction"
+                Resource:
+                  Fn::ImportValue:
+                    Fn::Join:
+                      - '-'
+                      - - !Ref LambdaStack
+                        - FindNotificationUsersLambdaArn
+
+  GetCurrentTimeLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName:
+        Fn::Join:
+          - '-'
+          - - !Ref ProjectName
+            - GetCurrentTimeForEventScheduler
+      Handler: index.handler
+      Role:
+        Fn::GetAtt:
+          - GetCurrentTimeLambdaExecutionRole
+          - Arn
+      Runtime: nodejs18.x
+      Timeout: 60
+      Code:
+        ZipFile: |
+          const response = require('cfn-response');
+          
+          exports.handler = async function (event, context) {
+              const adjustedTime = new Date();
+              adjustedTime.setHours(adjustedTime.getHours() + 1);
+              adjustedTime.setMinutes(0);
+              try {
+                  await response.send(event, context, response.SUCCESS, {Time: adjustedTime.toISOString()})
+              } catch (e) {
+                  console.log(e)
+                  await response.send(event, context, response.FAILED, {})
+              }
+          }
+
+  GetCurrentTimeLambdaExecution:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt GetCurrentTimeLambda.Arn
+
+  GetCurrentTimeLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: "LambdaExecutionPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: "*"
+              - Effect: "Allow"
+                Action:
+                  - "lambda:InvokeFunction"
+                Resource: "*"
