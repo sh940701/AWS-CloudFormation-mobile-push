@@ -1,0 +1,58 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Stack for generate SQS Queue
+
+Parameters:
+
+  ProjectName:
+    Type: String
+    Default: your_project_name
+
+  EnvironmentStage:
+    Type: String
+    Description: dev, prod, etc.
+    Default: dev
+
+Resources:
+  NotificationQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        Fn::Join:
+          - '-'
+          - - !Ref ProjectName
+            - !Ref EnvironmentStage
+            - NotificationQueue
+      SqsManagedSseEnabled: true
+
+  DefaultQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref NotificationQueue
+      PolicyDocument:
+        Statement:
+          - Action:
+              - SQS:*
+            Effect: Allow
+            Resource: !GetAtt [ NotificationQueue, Arn ]
+            Principal:
+              AWS: !Ref AWS::AccountId
+
+Outputs:
+  NotificationQueue:
+    Value: !Ref NotificationQueue
+    Export:
+      Name:
+        Fn::Join:
+          - '-'
+          - - !Ref AWS::StackName
+            - NotificationQueue
+
+  NotificationQueueArn:
+    Value: !GetAtt [ NotificationQueue, Arn ]
+    Export:
+      Name:
+        Fn::Join:
+          - '-'
+          - - !Ref AWS::StackName
+            - NotificationQueueArn
