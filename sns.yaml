@@ -1,0 +1,114 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Stack for SNS Resource
+
+Parameters:
+
+  ProjectName:
+    Type: String
+    Default: your_project_name
+
+  EnvironmentStage:
+    Type: String
+    Description: dev, prod, etc.
+    Default: dev
+
+  SecretsArn:
+    Type: String
+    Description: SecretsManager arn which contains your FCM_API_KEY secret value
+
+Resources:
+  SNSPlatformApplicationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: SNSPlatformApplicationLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:CreatePlatformApplication
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  SNSPlatformApplicationLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt SNSPlatformApplicationLambdaRole.Arn
+      FunctionName: GenerateSNSPlatformApplicationLambda
+      Runtime: nodejs20.x
+      Timeout: 30
+      Code:
+        ZipFile: |
+          const response = require('cfn-response');
+          const { SNSClient, CreatePlatformApplicationCommand } = require('@aws-sdk/client-sns');
+          const { SecretsManagerClient, GetSecretValueCommand } = require('@aws-sdk/client-secrets-manager');
+
+          exports.handler = async function (event, context) {
+              const snsClient = new SNSClient();
+              const secretsManagerClient = new SecretsManagerClient();
+
+              const secretArn = event.ResourceProperties.SecretsManagerArn;
+
+              try {
+                  const secretValue = await secretsManagerClient.send(new GetSecretValueCommand({ SecretId: secretArn }));
+                  const fcmApiKey = JSON.parse(secretValue.SecretString).FCM_API_KEY;
+
+                  const params = {
+                      Name: event.ResourceProperties.ApplicationName,
+                      Platform: 'GCM',
+                      Attributes: {
+                          PlatformCredential: fcmApiKey
+                      }
+                  };
+
+                  const result = await snsClient.send(new CreatePlatformApplicationCommand(params));
+                  await response.send(event, context, response.SUCCESS, { Arn: result.PlatformApplicationArn })
+              } catch (error) {
+                  console.error('Error creating SNS Platform Application', error);
+                  await response.send(event, context, response.FAILED, {})
+              }
+          };
+
+  # SNS platform application resource 는, 이를 만드는 cloudformation 코드가 없기 때문에
+  # lambda 를 먼저 생성한 후, lambda 를 실행시켜 리소스를 생성한다.
+  # 이 때 lambda 는 SNS platform application resource 를 생성하는 sdk 코드를 담고 있다.
+  SNSPlatformApplicationCreation:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt SNSPlatformApplicationLambdaFunction.Arn
+      ApplicationName:
+        Fn::Join:
+          - '-'
+          - - !Ref ProjectName
+            - !Ref EnvironmentStage
+            - PlatformApplication
+      SecretsManagerArn: !Ref SecretsArn
+
+Outputs:
+  SNSPlatformApplicationARN:
+    Description: ARN of the created SNS Platform Application
+    Value: !GetAtt [ SNSPlatformApplicationCreation, Arn ]
+    Export:
+      Name:
+        Fn::Join:
+          - '-'
+          - - !Ref AWS::StackName
+            - SNSPlatformApplicationArn
