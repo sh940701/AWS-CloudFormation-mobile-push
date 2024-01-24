@@ -20,7 +20,8 @@ CloudFormation 예제 템플릿
 ## How to Deploy
 
 1. **Firebase 설정**
-   - Google Firebase에 모바일 앱을 등록하고 FCM API 키를 획득.
+   - Google Firebase 에 모바일 앱을 등록하고 FCM API 키를 획득.
+   - 등록 시 이미지를 함께 등록하면, push 에 원하는 이미지를 함께 전송할 수 있다.
 
 2. **AWS Secrets Manager 구성**
    - Secrets Manager 리소스를 생성하고 `FCM_API_KEY` key 에 FCM API 키 값을 value 으로 삽입.
@@ -49,3 +50,4 @@ CloudFormation 예제 템플릿
 Lambda 및 ecs 혹은 실행중인 어플리케이션의 세부 구현은 사용방법에 따라 변경해야 함
 
 CodePipeline 을 사용하면, 위 리소스들을 nested stack 으로 하여 자동화 된 배포가 가능함. - [Link](https://www.youtube.com/watch?v=LHz04uN-wI0)
+
