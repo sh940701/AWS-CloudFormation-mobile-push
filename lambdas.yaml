@@ -1,0 +1,234 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: lambda stack for all lambdas
+
+Parameters:
+
+  ProjectName:
+    Type: String
+    Default: your_project_name
+
+  EnvironmentStage:
+    Type: String
+    Description: dev, prod, etc.
+    Default: dev
+
+  NotificationQueueArn:
+    Type: String
+
+  NotificationQueue:
+    Type: String
+
+Resources:
+
+  FindNotificationUsersLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: FindNotificationUsersLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: '*'
+
+  FindNotificationUsersLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: FindNotificationUsersLambda
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Code:
+        ZipFile: |
+          const { SendMessageCommand, SQSClient } = require("@aws-sdk/client-sqs");
+          
+          exports.handler = async function (event) {
+          const sqsClient = new SQSClient({});
+          const SQS_QUEUE_URL = process.env.SQS_QUEUE_URL;
+          
+            try {
+              // 이곳에 전송할 user device 의 개별 platformEndpointArn 값을 찾는 로직 구현 (DB 조회 등)
+                
+              const dataToSendSQS = [{ deviceToken, platformEndpointArn }]
+          
+              if (dataToSendSQS.length !== 0) {
+                for (const item of dataToSendSQS) {
+                const command = new SendMessageCommand({
+                  QueueUrl: SQS_QUEUE_URL,
+                  MessageAttributes: {
+                    deviceToken: {
+                      DataType: "String",
+                      StringValue: deviceToken // DeviceToken for each device
+                    },
+                    platformEndpointArn:{
+                      DataType: "String",
+                      StringValue: platformEndpointArn // platformEndpointArn mappings with deviceToken
+                    }
+                  },
+                  MessageBody: "Send data"
+                });
+          
+                  const result = await sqsClient.send(command)
+          
+                  console.log(result)
+                }      
+              }
+          
+              return {
+                statusCode: 200,
+                headers: {
+                  "Access-Control-Allow-Origin": "*",
+                  "Access-Control-Allow-Headers": "*",
+                },
+              };
+            } catch (error) {
+              console.log(error);
+              return {
+                statusCode: 500,
+                body: JSON.stringify({ error: "Internal Server Error" }),
+              };
+            }
+          };
+
+      Role: !GetAtt [ FindNotificationUsersLambdaRole, Arn ]
+      Environment:
+        Variables:
+          SQS_QUEUE_URL: !Ref NotificationQueue
+      Timeout: 10
+
+  SendNotificationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - sqs:*
+                Resource: !Ref NotificationQueueArn
+
+  SendNotificationLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt SendNotificationLambdaRole.Arn
+      FunctionName:
+        Fn::Join:
+          - '-'
+          - - !Ref ProjectName
+            - SendNotificationLambda
+      Runtime: nodejs18.x
+      Code:
+        ZipFile: |
+          const { SNSClient, PublishCommand } = require("@aws-sdk/client-sns");
+
+          const sns = new SNSClient({ region: 'ap-northeast-2' });
+
+          async function sendPushNotification(params) {
+            return await sns.send(new PublishCommand(params));
+          }
+
+          // 
+          async function publishPushNotification(message, endpointARN) {
+            const messageToSend = formatMessage('message-title', message);
+
+            try {
+              const publishParams = {
+                Message: messageToSend,
+                MessageStructure: 'json',
+                TargetArn: endpointARN,
+              };
+
+              const publishData = await sendPushNotification(publishParams);
+
+              console.log(publishData);
+            } catch (e) {
+              console.error(e);
+            }
+          }
+
+          function formatMessage(title, body) {
+            const payload = {
+              GCM: JSON.stringify({
+                notification: {
+                  title,
+                  body,
+                  sound: "default",
+                },
+              }),
+            };
+            return JSON.stringify(payload);
+          }
+
+          exports.handler = async function (event) {
+            const { platformEndpointArn } = event.Records[0].messageAttributes;
+
+            const message = 'enter your message to send';
+
+            await publishPushNotification(message, platformEndpointArn.stringValue);
+          };
+      Timeout: 10
+
+  # sqs -> lambda triggering
+  # https://www.itonaut.com/2018/07/11/sqs-queue-as-lambda-trigger-in-aws-cloudformation/
+  SendNotificationLambdaSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !Ref NotificationQueueArn
+      FunctionName: !GetAtt [ SendNotificationLambda, Arn ]
+
+Outputs:
+  FindNotificationUsersLambdaArn:
+    Value: !GetAtt [ FindNotificationUsersLambda, Arn ]
+    Export:
+      Name:
+        Fn::Join:
+          - '-'
+          - - !Ref AWS::StackName
+            - FindNotificationUsersLambdaArn
+
+  SendNotificationLambdaArn:
+    Value: !GetAtt [ SendNotificationLambda, Arn ]
+    Export:
+      Name:
+        Fn::Join:
+          - '-'
+          - - !Ref AWS::StackName
+            - SendNotificationLambda
