@@ -1,6 +1,6 @@
 # AWS CloudFormation for Mobile push with FCM
 
-![AWS CloudFormation](./static/AWS-CloudFormation.png)
+![AWS CloudFormation](./static/aws-cloudformation.png)
 
 # Architecture
 
